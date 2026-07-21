@@ -1,11 +1,20 @@
 'use client';
 
 import { useState } from 'react';
-import BrainMap from '@/components/BrainMap';
+import dynamic from 'next/dynamic';
 import DetailPanel from '@/components/DetailPanel';
 import StatusBar from '@/components/StatusBar';
 import PasswordGate from '@/components/PasswordGate';
 import { domainNodes, detailData } from '@/data/mockData';
+
+const BrainMap = dynamic(() => import('@/components/BrainMap'), {
+  ssr: false,
+  loading: () => (
+    <div className="w-full h-full flex items-center justify-center">
+      <div className="text-[#00ff88] animate-pulse">Loading brain map...</div>
+    </div>
+  ),
+});
 
 export default function Dashboard() {
   const [selectedNode, setSelectedNode] = useState<string | null>(null);
