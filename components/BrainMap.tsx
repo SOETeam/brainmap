@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useMemo } from 'react';
+import { useCallback, useMemo, useEffect } from 'react';
 import {
   ReactFlow,
   Background,
@@ -93,7 +93,7 @@ export default function BrainMap({ selectedNode, onNodeSelect }: BrainMapProps) 
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
 
   // Update nodes when selection changes
-  useMemo(() => {
+  useEffect(() => {
     setNodes(
       domainNodes.map((dn) => ({
         id: dn.id,
