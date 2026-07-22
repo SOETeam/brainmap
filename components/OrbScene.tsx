@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useState, useCallback, useMemo } from 'react';
+import { useRef, useState, useCallback, useMemo, useEffect } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import { Stars } from '@react-three/drei';
 import * as THREE from 'three';
@@ -51,7 +51,7 @@ type SubOrbItem = {
   position: [number, number, number];
 };
 
-// Get sub-orb data for a domain — use explicit type casts per case
+// Get sub-orb data for a domain
 function getSubOrbs(domainId: string): SubOrbItem[] {
   const raw = detailData[domainId as keyof typeof detailData];
   if (!raw) return [];
@@ -244,6 +244,8 @@ interface OrbSceneProps {
   setDrillDepth: (depth: number) => void;
   activeDomain: string | null;
   setActiveDomain: (domain: string | null) => void;
+  isExpanded: boolean;
+  setIsExpanded: (expanded: boolean) => void;
 }
 
 export default function OrbScene({
@@ -252,11 +254,17 @@ export default function OrbScene({
   setDrillDepth,
   activeDomain,
   setActiveDomain,
+  isExpanded,
+  setIsExpanded,
 }: OrbSceneProps) {
   const domainPositions = useMemo(
     () => getDomainPositions(domainNodes.length),
     []
   );
+
+  // Animation progress for drill-down expand/collapse
+  const expandProgress = useRef(0);
+  const targetExpandProgress = isExpanded ? 1 : 0;
 
   // Camera targets
   const [cameraTarget, setCameraTarget] = useState(
@@ -305,6 +313,16 @@ export default function OrbScene({
     }));
   }, [subOrbs, activeDomain, drillDepth]);
 
+  // Central orb click — expand to show domains
+  const handleCentralClick = useCallback(() => {
+    if (!isExpanded) {
+      setIsExpanded(true);
+      // Zoom camera in slightly for expanded view
+      setCameraTarget(new THREE.Vector3(0, 0.5, 7));
+      setLookAtTarget(new THREE.Vector3(0, 0, 0));
+    }
+  }, [isExpanded, setIsExpanded]);
+
   const handleDomainClick = useCallback(
     (domainId: string) => {
       const idx = domainNodes.findIndex((n) => n.id === domainId);
@@ -326,16 +344,43 @@ export default function OrbScene({
 
   const handleSubClick = useCallback(
     (_subId: string) => {
-      // Sub-orb click just selects for detail panel
       onNodeSelect(activeDomain);
     },
     [activeDomain, onNodeSelect]
   );
 
+  // Track domain orb appear progress (0-1) for staggered animation
+  const domainAppear = useRef(domainNodes.map(() => 0));
+
+  useFrame((_, delta) => {
+    // Animate expand progress
+    expandProgress.current = THREE.MathUtils.lerp(
+      expandProgress.current,
+      targetExpandProgress,
+      delta * 3
+    );
+
+    // Staggered domain orb appearance
+    for (let i = 0; i < domainNodes.length; i++) {
+      const staggerDelay = i * 0.08;
+      const localProgress = Math.max(0, Math.min(1, (expandProgress.current - 0.2 - staggerDelay) / 0.5));
+      domainAppear.current[i] = THREE.MathUtils.lerp(domainAppear.current[i], localProgress, delta * 5);
+    }
+  });
+
+  // Central orb — shrink as domains appear
+  const centralAppear = useRef(1);
+
+  useFrame((_, delta) => {
+    // Central orb: visible when collapsed, shrinks when expanded
+    const targetCentral = isExpanded ? 0.4 : 1;
+    centralAppear.current = THREE.MathUtils.lerp(centralAppear.current, targetCentral, delta * 3);
+  });
+
   return (
     <>
       {/* Lighting */}
-      <ambientLight intensity={0.15} />
+      <ambientLight intensity={0.1} />
       <pointLight position={[0, 0, 5]} intensity={0.8} color="#00e5ff" />
       <pointLight position={[5, 5, 5]} intensity={0.3} color="#b44dff" />
       <pointLight position={[-5, -5, 3]} intensity={0.3} color="#00ff88" />
@@ -344,16 +389,16 @@ export default function OrbScene({
       <Stars
         radius={50}
         depth={50}
-        count={1500}
+        count={2000}
         factor={3}
         saturation={0.2}
         fade
         speed={0.5}
       />
-      <color attach="background" args={['#050508']} />
-      <fog attach="fog" args={['#050508', 15, 35]} />
+      <color attach="background" args={['#030308']} />
+      <fog attach="fog" args={['#030308', 15, 40]} />
 
-      {/* Ambient particles */}
+      {/* Ambient particles + grid */}
       <Particles />
 
       {/* Camera controller */}
@@ -362,43 +407,55 @@ export default function OrbScene({
         targetLookAt={lookAtTarget}
       />
 
-      {/* === DOMAIN LEVEL (drillDepth === 0) === */}
+      {/* === MAIN VIEW (drillDepth === 0) === */}
       {drillDepth === 0 && (
         <>
-          {/* Central orb */}
+          {/* Central "Life" orb — always present but transforms */}
           <Orb
             id="center"
             label="Life"
             icon="🧠"
-            metric="All Systems"
+            metric={isExpanded ? '7 domains active' : 'Tap to explore'}
             status="white"
             position={[0, 0, 0]}
-            radius={1}
+            radius={isExpanded ? 0.6 : 1.2}
             isCenter
             floatSpeed={0.5}
             floatIntensity={0.15}
             showLabel
+            onClick={handleCentralClick}
+            isCentralCollapsed={!isExpanded}
+            appearProgress={isExpanded ? 0.5 : 1}
+            animScale={isExpanded ? 0.6 : 1.2}
           />
 
-          {/* Domain orbs */}
-          {domainNodes.map((node, i) => (
-            <Orb
-              key={node.id}
-              id={node.id}
-              label={node.title}
-              icon={node.icon}
-              metric={node.metric}
-              status={node.status}
-              position={domainPositions[i]}
-              radius={0.55}
-              onClick={() => handleDomainClick(node.id)}
-              floatSpeed={0.8 + i * 0.1}
-              floatIntensity={0.2}
-            />
-          ))}
+          {/* Domain orbs — appear when expanded */}
+          {domainNodes.map((node, i) => {
+            const ap = domainAppear.current[i];
+            return (
+              <Orb
+                key={node.id}
+                id={node.id}
+                label={node.title}
+                icon={node.icon}
+                metric={node.metric}
+                status={node.status}
+                position={domainPositions[i]}
+                radius={0.55}
+                onClick={() => handleDomainClick(node.id)}
+                floatSpeed={0.8 + i * 0.1}
+                floatIntensity={0.2}
+                appearProgress={ap}
+                animScale={1}
+              />
+            );
+          })}
 
-          {/* Connection lines */}
-          <ConnectionLines connections={domainConnections} />
+          {/* Connection lines — visible when expanded */}
+          <ConnectionLines
+            connections={domainConnections}
+            visible={isExpanded}
+          />
         </>
       )}
 
@@ -421,12 +478,13 @@ export default function OrbScene({
                 isCenter
                 floatSpeed={0.5}
                 floatIntensity={0.1}
+                appearProgress={1}
               />
             );
           })()}
 
           {/* Sub-orbs */}
-          {subOrbs.map((sub) => (
+          {subOrbs.map((sub, i) => (
             <Orb
               key={sub.id}
               id={sub.id}
@@ -439,11 +497,12 @@ export default function OrbScene({
               onClick={() => handleSubClick(sub.id)}
               floatSpeed={1}
               floatIntensity={0.15}
+              appearProgress={1}
             />
           ))}
 
           {/* Sub connections */}
-          <ConnectionLines connections={subConnections} />
+          <ConnectionLines connections={subConnections} visible />
         </>
       )}
     </>

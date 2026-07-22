@@ -73,3 +73,19 @@ canvas {
 .detail-panel-enter {
   animation: slideIn 0.3s ease-out;
 }
+
+/* Tap-to-explore hint fade */
+@keyframes fadeInOut {
+  0% { opacity: 0; transform: translateY(10px); }
+  20% { opacity: 1; transform: translateY(0); }
+  80% { opacity: 1; transform: translateY(0); }
+  100% { opacity: 0; transform: translateY(-10px); }
+}
+
+/* Mobile canvas override */
+@media (max-width: 767px) {
+  canvas {
+    width: 100vw !important;
+    height: 100vh !important;
+  }
+}
