@@ -1,13 +1,14 @@
 'use client';
 
-import { useRef, useState, useCallback, useMemo, useEffect } from 'react';
+import { useRef, useState, useCallback, useMemo } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
-import { Stars } from '@react-three/drei';
+import { Stars, OrbitControls } from '@react-three/drei';
 import * as THREE from 'three';
 import Orb from './Orb';
 import ConnectionLines from './ConnectionLines';
 import Particles from './Particles';
 import { domainNodes, edges, detailData } from '@/data/mockData';
+import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib';
 import {
   StatusColor,
   FinanceData,
@@ -27,7 +28,6 @@ const STATUS_HEX: Record<StatusColor, string> = {
   white: '#e0e0e0',
 };
 
-// Position domain orbs in a circle around center
 const DOMAIN_RADIUS = 3.5;
 function getDomainPositions(count: number): [number, number, number][] {
   const positions: [number, number, number][] = [];
@@ -51,7 +51,6 @@ type SubOrbItem = {
   position: [number, number, number];
 };
 
-// Get sub-orb data for a domain
 function getSubOrbs(domainId: string): SubOrbItem[] {
   const raw = detailData[domainId as keyof typeof detailData];
   if (!raw) return [];
@@ -88,7 +87,6 @@ function getSubOrbs(domainId: string): SubOrbItem[] {
       });
       break;
     }
-
     case 'health': {
       const data = raw as HealthData;
       const healthItems = [
@@ -102,7 +100,6 @@ function getSubOrbs(domainId: string): SubOrbItem[] {
       });
       break;
     }
-
     case 'agents': {
       const data = raw as AgentsData;
       const statusMap: Record<string, StatusColor> = { active: 'green', idle: 'yellow', error: 'red', offline: 'white' };
@@ -118,7 +115,6 @@ function getSubOrbs(domainId: string): SubOrbItem[] {
       });
       break;
     }
-
     case 'calendar': {
       const data = raw as CalendarData;
       const evts = data.events.slice(0, 6);
@@ -135,7 +131,6 @@ function getSubOrbs(domainId: string): SubOrbItem[] {
       });
       break;
     }
-
     case 'legal': {
       const data = raw as LegalData;
       data.cases.forEach((c, i) => {
@@ -150,7 +145,6 @@ function getSubOrbs(domainId: string): SubOrbItem[] {
       });
       break;
     }
-
     case 'business': {
       const data = raw as BusinessData;
       const bizItems: Omit<SubOrbItem, 'position'>[] = [
@@ -181,7 +175,6 @@ function getSubOrbs(domainId: string): SubOrbItem[] {
       });
       break;
     }
-
     case 'home': {
       const data = raw as HomeData;
       const homeItems: Omit<SubOrbItem, 'position'>[] = [
@@ -217,27 +210,6 @@ function getSubOrbs(domainId: string): SubOrbItem[] {
   return items;
 }
 
-// Camera animation component
-function CameraController({
-  targetPosition,
-  targetLookAt,
-}: {
-  targetPosition: THREE.Vector3;
-  targetLookAt: THREE.Vector3;
-}) {
-  const { camera } = useThree();
-  const currentLookAt = useRef(new THREE.Vector3(0, 0, 0));
-
-  useFrame((_, delta) => {
-    const speed = 3;
-    camera.position.lerp(targetPosition, delta * speed);
-    currentLookAt.current.lerp(targetLookAt, delta * speed);
-    camera.lookAt(currentLookAt.current);
-  });
-
-  return null;
-}
-
 interface OrbSceneProps {
   onNodeSelect: (id: string | null) => void;
   drillDepth: number;
@@ -257,21 +229,73 @@ export default function OrbScene({
   isExpanded,
   setIsExpanded,
 }: OrbSceneProps) {
-  const domainPositions = useMemo(
-    () => getDomainPositions(domainNodes.length),
-    []
+  const { camera } = useThree();
+  const controlsRef = useRef<OrbitControlsImpl>(null);
+  const domainPositions = useMemo(() => getDomainPositions(domainNodes.length), []);
+
+  // Domain orb visibility — use actual state for the initial expand
+  const [domainOrbsVisible, setDomainOrbsVisible] = useState(false);
+  const expandAnimProgress = useRef(0);
+
+  // Smoothly animate expand progress
+  useFrame((_, delta) => {
+    const target = isExpanded ? 1 : 0;
+    expandAnimProgress.current = THREE.MathUtils.lerp(expandAnimProgress.current, target, delta * 2.5);
+  });
+
+  // Show domain orbs after a short delay when expanding
+  const handleCentralClick = useCallback(() => {
+    if (!isExpanded) {
+      setIsExpanded(true);
+      setDomainOrbsVisible(true);
+    }
+  }, [isExpanded, setIsExpanded]);
+
+  // Smoothly move camera to target (non-blocking — doesn't fight OrbitControls)
+  const animateCamera = useCallback((targetPos: THREE.Vector3, targetLook: THREE.Vector3) => {
+    if (!controlsRef.current) return;
+    // Set the OrbitControls target — this lets OrbitControls handle the actual camera
+    controlsRef.current.target.copy(targetLook);
+    // Smoothly move camera
+    const startPos = camera.position.clone();
+    const duration = 800;
+    const startTime = Date.now();
+
+    const animate = () => {
+      const elapsed = Date.now() - startTime;
+      const t = Math.min(elapsed / duration, 1);
+      const ease = 1 - Math.pow(1 - t, 3); // ease-out cubic
+      camera.position.lerpVectors(startPos, targetPos, ease);
+      controlsRef.current?.target.copy(targetLook);
+      controlsRef.current?.update();
+      if (t < 1) requestAnimationFrame(animate);
+    };
+    animate();
+  }, [camera]);
+
+  const handleDomainClick = useCallback(
+    (domainId: string) => {
+      const idx = domainNodes.findIndex((n) => n.id === domainId);
+      if (idx < 0) return;
+
+      setActiveDomain(domainId);
+      setDrillDepth(1);
+      onNodeSelect(domainId);
+
+      const pos = domainPositions[idx];
+      animateCamera(
+        new THREE.Vector3(pos[0] * 0.3, pos[1] * 0.3, pos[2] + 4),
+        new THREE.Vector3(pos[0], pos[1], pos[2])
+      );
+    },
+    [domainPositions, setActiveDomain, setDrillDepth, onNodeSelect, animateCamera]
   );
 
-  // Animation progress for drill-down expand/collapse
-  const expandProgress = useRef(0);
-  const targetExpandProgress = isExpanded ? 1 : 0;
-
-  // Camera targets
-  const [cameraTarget, setCameraTarget] = useState(
-    new THREE.Vector3(0, 0, 9)
-  );
-  const [lookAtTarget, setLookAtTarget] = useState(
-    new THREE.Vector3(0, 0, 0)
+  const handleSubClick = useCallback(
+    (_subId: string) => {
+      onNodeSelect(activeDomain);
+    },
+    [activeDomain, onNodeSelect]
   );
 
   // Connection lines for domain level
@@ -297,13 +321,11 @@ export default function OrbScene({
     }[];
   }, [domainPositions]);
 
-  // Get sub-orbs for active domain
   const subOrbs = useMemo(() => {
     if (!activeDomain || drillDepth < 1) return [];
     return getSubOrbs(activeDomain);
   }, [activeDomain, drillDepth]);
 
-  // Sub-orb connections (all connect to center)
   const subConnections = useMemo(() => {
     if (!activeDomain || drillDepth < 1) return [];
     return subOrbs.map((sub) => ({
@@ -313,72 +335,28 @@ export default function OrbScene({
     }));
   }, [subOrbs, activeDomain, drillDepth]);
 
-  // Central orb click — expand to show domains
-  const handleCentralClick = useCallback(() => {
-    if (!isExpanded) {
-      setIsExpanded(true);
-      // Zoom camera in slightly for expanded view
-      setCameraTarget(new THREE.Vector3(0, 0.5, 7));
-      setLookAtTarget(new THREE.Vector3(0, 0, 0));
-    }
-  }, [isExpanded, setIsExpanded]);
-
-  const handleDomainClick = useCallback(
-    (domainId: string) => {
-      const idx = domainNodes.findIndex((n) => n.id === domainId);
-      if (idx < 0) return;
-
-      setActiveDomain(domainId);
-      setDrillDepth(1);
-      onNodeSelect(domainId);
-
-      // Zoom camera into this domain orb
-      const pos = domainPositions[idx];
-      setCameraTarget(
-        new THREE.Vector3(pos[0] * 0.3, pos[1] * 0.3, pos[2] + 4)
-      );
-      setLookAtTarget(new THREE.Vector3(pos[0], pos[1], pos[2]));
-    },
-    [domainPositions, setActiveDomain, setDrillDepth, onNodeSelect]
-  );
-
-  const handleSubClick = useCallback(
-    (_subId: string) => {
-      onNodeSelect(activeDomain);
-    },
-    [activeDomain, onNodeSelect]
-  );
-
-  // Track domain orb appear progress (0-1) for staggered animation
-  const domainAppear = useRef(domainNodes.map(() => 0));
-
-  useFrame((_, delta) => {
-    // Animate expand progress
-    expandProgress.current = THREE.MathUtils.lerp(
-      expandProgress.current,
-      targetExpandProgress,
-      delta * 3
-    );
-
-    // Staggered domain orb appearance
-    for (let i = 0; i < domainNodes.length; i++) {
-      const staggerDelay = i * 0.08;
-      const localProgress = Math.max(0, Math.min(1, (expandProgress.current - 0.2 - staggerDelay) / 0.5));
-      domainAppear.current[i] = THREE.MathUtils.lerp(domainAppear.current[i], localProgress, delta * 5);
-    }
-  });
-
-  // Central orb — shrink as domains appear
-  const centralAppear = useRef(1);
-
-  useFrame((_, delta) => {
-    // Central orb: visible when collapsed, shrinks when expanded
-    const targetCentral = isExpanded ? 0.4 : 1;
-    centralAppear.current = THREE.MathUtils.lerp(centralAppear.current, targetCentral, delta * 3);
-  });
-
   return (
     <>
+      {/* OrbitControls — the ONLY thing controlling the camera */}
+      <OrbitControls
+        ref={controlsRef}
+        enableZoom={true}
+        enableRotate={true}
+        enablePan={true}
+        enableDamping={true}
+        dampingFactor={0.08}
+        rotateSpeed={0.5}
+        zoomSpeed={0.8}
+        panSpeed={0.5}
+        minDistance={2}
+        maxDistance={25}
+        makeDefault
+        touches={{
+          ONE: THREE.TOUCH.ROTATE,
+          TWO: THREE.TOUCH.DOLLY_PAN,
+        }}
+      />
+
       {/* Lighting */}
       <ambientLight intensity={0.1} />
       <pointLight position={[0, 0, 5]} intensity={0.8} color="#00e5ff" />
@@ -386,31 +364,16 @@ export default function OrbScene({
       <pointLight position={[-5, -5, 3]} intensity={0.3} color="#00ff88" />
 
       {/* Background */}
-      <Stars
-        radius={50}
-        depth={50}
-        count={2000}
-        factor={3}
-        saturation={0.2}
-        fade
-        speed={0.5}
-      />
+      <Stars radius={50} depth={50} count={2000} factor={3} saturation={0.2} fade speed={0.5} />
       <color attach="background" args={['#030308']} />
       <fog attach="fog" args={['#030308', 15, 40]} />
 
-      {/* Ambient particles + grid */}
       <Particles />
 
-      {/* Camera controller */}
-      <CameraController
-        targetPosition={cameraTarget}
-        targetLookAt={lookAtTarget}
-      />
-
-      {/* === MAIN VIEW (drillDepth === 0) === */}
+      {/* === MAIN VIEW === */}
       {drillDepth === 0 && (
         <>
-          {/* Central "Life" orb — always present but transforms */}
+          {/* Central orb */}
           <Orb
             id="center"
             label="Life"
@@ -425,14 +388,13 @@ export default function OrbScene({
             showLabel
             onClick={handleCentralClick}
             isCentralCollapsed={!isExpanded}
-            appearProgress={isExpanded ? 0.5 : 1}
-            animScale={isExpanded ? 0.6 : 1.2}
+            appearProgress={1}
+            animScale={1}
           />
 
-          {/* Domain orbs — appear when expanded */}
-          {domainNodes.map((node, i) => {
-            const ap = domainAppear.current[i];
-            return (
+          {/* Domain orbs — shown once expanded */}
+          {domainOrbsVisible &&
+            domainNodes.map((node, i) => (
               <Orb
                 key={node.id}
                 id={node.id}
@@ -445,24 +407,21 @@ export default function OrbScene({
                 onClick={() => handleDomainClick(node.id)}
                 floatSpeed={0.8 + i * 0.1}
                 floatIntensity={0.2}
-                appearProgress={ap}
+                appearProgress={1}
                 animScale={1}
               />
-            );
-          })}
+            ))}
 
-          {/* Connection lines — visible when expanded */}
-          <ConnectionLines
-            connections={domainConnections}
-            visible={isExpanded}
-          />
+          {/* Connection lines */}
+          {domainOrbsVisible && (
+            <ConnectionLines connections={domainConnections} visible />
+          )}
         </>
       )}
 
-      {/* === SUB LEVEL (drillDepth === 1) === */}
+      {/* === SUB LEVEL === */}
       {drillDepth === 1 && activeDomain && (
         <>
-          {/* Parent domain orb (now center, larger) */}
           {(() => {
             const dn = domainNodes.find((n) => n.id === activeDomain);
             if (!dn) return null;
@@ -483,8 +442,7 @@ export default function OrbScene({
             );
           })()}
 
-          {/* Sub-orbs */}
-          {subOrbs.map((sub, i) => (
+          {subOrbs.map((sub) => (
             <Orb
               key={sub.id}
               id={sub.id}
@@ -501,7 +459,6 @@ export default function OrbScene({
             />
           ))}
 
-          {/* Sub connections */}
           <ConnectionLines connections={subConnections} visible />
         </>
       )}
