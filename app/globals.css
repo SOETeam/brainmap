@@ -7,51 +7,18 @@
 }
 
 body {
-  background: #0a0a0f;
+  background: #050508;
   color: #e0e0e0;
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
 }
 
-/* React Flow overrides */
-.react-flow__background {
-  background: #0a0a0f !important;
-}
-
-.react-flow__edge-path {
-  stroke: #1e1e2e;
-  stroke-width: 2;
-}
-
-.react-flow__edge.animated .react-flow__edge-path {
-  stroke-dasharray: 5;
-  animation: dashdraw 0.5s linear infinite;
-}
-
-@keyframes dashdraw {
-  from { stroke-dashoffset: 10; }
-  to { stroke-dashoffset: 0; }
-}
-
-.react-flow__controls {
-  background: #12121a;
-  border: 1px solid #1e1e2e;
-  border-radius: 8px;
-}
-
-.react-flow__controls button {
-  background: #12121a;
-  border-color: #1e1e2e;
-  color: #e0e0e0;
-}
-
-.react-flow__controls button:hover {
-  background: #1e1e2e;
-}
-
-.react-flow__minimap {
-  background: #12121a;
-  border: 1px solid #1e1e2e;
-  border-radius: 8px;
+/* 3D Canvas fills parent */
+canvas {
+  display: block;
+  touch-action: none;
 }
 
 /* Custom scrollbar */
@@ -72,10 +39,10 @@ body {
   background: #2e2e3e;
 }
 
-/* Glow animation for urgent nodes */
+/* Glow animation for status bar items */
 @keyframes urgentPulse {
-  0%, 100% { box-shadow: 0 0 8px rgba(255, 51, 102, 0.4); }
-  50% { box-shadow: 0 0 20px rgba(255, 51, 102, 0.8), 0 0 40px rgba(255, 51, 102, 0.3); }
+  0%, 100% { opacity: 0.8; }
+  50% { opacity: 1; }
 }
 
 @keyframes activePulse {
@@ -89,4 +56,20 @@ body {
 
 .node-active {
   animation: activePulse 3s ease-in-out infinite;
+}
+
+/* Detail panel slide-in animation */
+@keyframes slideIn {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+.detail-panel-enter {
+  animation: slideIn 0.3s ease-out;
 }

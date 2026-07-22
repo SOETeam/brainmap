@@ -24,33 +24,40 @@ export default function StatusBar() {
   }, []);
 
   const alerts = [
-    { text: 'Car insurance overdue', color: 'text-cyber-red' },
-    { text: 'Legal deadline Aug 5', color: 'text-cyber-yellow' },
-    { text: '6 agents online', color: 'text-cyber-blue' },
+    { text: 'Car insurance overdue', color: 'text-[#ff3366]' },
+    { text: 'Legal deadline Aug 5', color: 'text-[#ffd000]' },
+    { text: '6 agents online', color: 'text-[#4d9fff]' },
   ];
 
   return (
-    <header className="flex items-center justify-between px-6 py-3 bg-cyber-surface border-b border-cyber-border">
+    <header
+      className="flex items-center justify-between px-4 sm:px-6 py-2.5
+        bg-[#0a0a0f]/80 backdrop-blur-md border-b border-[#1e1e2e]/50
+        z-30 relative"
+    >
       <div className="flex items-center gap-3">
-        <h1 className="text-xl font-bold tracking-wider">
-          <span className="text-cyber-green">BRAIN</span>
-          <span className="text-cyber-cyan">MAP</span>
+        <h1 className="text-lg sm:text-xl font-bold tracking-wider">
+          <span className="text-[#00ff88]">BRAIN</span>
+          <span className="text-[#00e5ff]">MAP</span>
         </h1>
-        <span className="text-xs text-gray-500 font-mono">v0.1.0</span>
+        <span className="text-[10px] text-gray-600 font-mono hidden sm:inline">
+          v0.2.0 · 3D
+        </span>
       </div>
 
-      <div className="flex items-center gap-6">
+      <div className="hidden md:flex items-center gap-3">
         {alerts.map((a, i) => (
           <span
             key={i}
-            className={`text-xs font-mono px-2 py-1 rounded border border-cyber-border bg-cyber-bg ${a.color}`}
+            className={`text-[11px] font-mono px-2 py-1 rounded border border-[#1e1e2e]/50
+              bg-[#0d0d14]/60 backdrop-blur-sm ${a.color}`}
           >
             {a.text}
           </span>
         ))}
       </div>
 
-      <div className="text-sm font-mono text-gray-400">{time}</div>
+      <div className="text-xs sm:text-sm font-mono text-gray-500">{time}</div>
     </header>
   );
 }

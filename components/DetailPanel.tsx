@@ -408,7 +408,7 @@ export default function DetailPanel({ nodeId, node, data, onClose }: DetailPanel
 
   return (
     <div
-      className={`w-[380px] h-full bg-cyber-surface border-l ${statusBorder[node.status]} overflow-y-auto`}
+      className={`w-[380px] h-full bg-[#12121a]/95 backdrop-blur-md border-l ${statusBorder[node.status]} overflow-y-auto detail-panel-enter`}
     >
       <div className="sticky top-0 bg-cyber-surface z-10 p-4 border-b border-cyber-border">
         <div className="flex items-center justify-between">
