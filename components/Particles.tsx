@@ -1,14 +1,26 @@
 'use client';
 
-import { useRef, useMemo } from 'react';
+import { useRef, useMemo, useEffect } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 
-const PARTICLE_COUNT = 300;
-const SPREAD = 14;
+interface ParticlesProps {
+  isMobile?: boolean;
+  isLowEnd?: boolean;
+}
 
-export default function Particles() {
+export default function Particles({ isMobile = false, isLowEnd = false }: ParticlesProps) {
   const pointsRef = useRef<THREE.Points>(null);
+  const frameCount = useRef(0);
+
+  // MOBILE: reduce background particle count
+  const PARTICLE_COUNT = useMemo(() => {
+    if (isLowEnd) return 40;
+    if (isMobile) return 80;
+    return 300;
+  }, [isMobile, isLowEnd]);
+
+  const SPREAD = 14;
 
   const { positions, velocities, colors, sizes } = useMemo(() => {
     const positions = new Float32Array(PARTICLE_COUNT * 3);
@@ -43,7 +55,7 @@ export default function Particles() {
     }
 
     return { positions, velocities, colors, sizes };
-  }, []);
+  }, [PARTICLE_COUNT]);
 
   const geometry = useMemo(() => {
     const geo = new THREE.BufferGeometry();
@@ -55,7 +67,7 @@ export default function Particles() {
   // Grid lines geometry
   const gridGeometry = useMemo(() => {
     const gridSize = 20;
-    const gridDiv = 20;
+    const gridDiv = isMobile ? 10 : 20; // Fewer grid lines on mobile
     const positions: number[] = [];
 
     for (let i = 0; i <= gridDiv; i++) {
@@ -69,10 +81,23 @@ export default function Particles() {
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
     return geo;
-  }, []);
+  }, [isMobile]);
+
+  // Dispose on unmount
+  useEffect(() => {
+    return () => {
+      geometry.dispose();
+      gridGeometry.dispose();
+    };
+  }, [geometry, gridGeometry]);
 
   useFrame(() => {
     if (!pointsRef.current) return;
+
+    // MOBILE: skip updates on alternating frames
+    frameCount.current++;
+    if (isMobile && frameCount.current % 2 !== 0) return;
+
     const posAttr = pointsRef.current.geometry.attributes.position;
     const posArray = posAttr.array as Float32Array;
 

@@ -2,9 +2,10 @@
 
 import { useState, useCallback, useEffect } from 'react';
 import { Canvas } from '@react-three/fiber';
-import { OrbitControls } from '@react-three/drei';
+import { OrbitControls, Preload } from '@react-three/drei';
 import { EffectComposer, Bloom } from '@react-three/postprocessing';
 import OrbScene from './OrbScene';
+import { getIsMobile, getIsLowEnd } from '@/utils/device';
 
 interface BrainMapProps {
   selectedNode: string | null;
@@ -25,12 +26,15 @@ export default function BrainMap({
 }: BrainMapProps) {
   const [isExpanded, setIsExpanded] = useState(false);
   const [showHint, setShowHint] = useState(false);
-  const [isMobile, setIsMobile] = useState(false);
+  const [isMobile, setIsMobile] = useState(() => getIsMobile());
+  const [isLowEnd, setIsLowEnd] = useState(() => getIsLowEnd());
 
-  // Detect mobile
+  // Detect device capabilities
   useEffect(() => {
     const check = () => {
-      setIsMobile(window.innerWidth < 768);
+      const mobile = window.innerWidth < 768;
+      setIsMobile(mobile);
+      setIsLowEnd(mobile || window.matchMedia('(prefers-reduced-motion: reduce)').matches);
     };
     check();
     window.addEventListener('resize', check);
@@ -65,14 +69,14 @@ export default function BrainMap({
     <div className="w-full h-full relative">
       <Canvas
         camera={{ position: [0, 0, 9], fov: 60, near: 0.1, far: 100 }}
-        dpr={[1, 2]}
+        dpr={isMobile ? [1, 1.5] : [1, 2]}
+        performance={{ min: 0.5 }}
         gl={{
           antialias: true,
           alpha: false,
           powerPreference: 'high-performance',
         }}
         style={{ background: '#030308', touchAction: 'none' }}
-        // Ensure touch events propagate
         onCreated={({ gl }) => {
           gl.domElement.style.touchAction = 'none';
         }}
@@ -89,7 +93,6 @@ export default function BrainMap({
           panSpeed={0.5}
           minDistance={3}
           maxDistance={20}
-          // Touch configuration
           touches={{
             ONE: 1, // ROTATE (THREE.TOUCH.ROTATE)
             TWO: 2, // DOLLY_PAN (THREE.TOUCH.DOLLY_PAN)
@@ -109,17 +112,23 @@ export default function BrainMap({
           setActiveDomain={setActiveDomain}
           isExpanded={isExpanded}
           setIsExpanded={setIsExpanded}
+          isMobile={isMobile}
+          isLowEnd={isLowEnd}
         />
 
-        {/* Post-processing bloom */}
-        <EffectComposer>
-          <Bloom
-            luminanceThreshold={0.2}
-            luminanceSmoothing={0.9}
-            intensity={0.6}
-            mipmapBlur
-          />
-        </EffectComposer>
+        {/* Post-processing bloom — skip entirely on low-end devices */}
+        {!isLowEnd && (
+          <EffectComposer multisampling={isMobile ? 0 : 4}>
+            <Bloom
+              luminanceThreshold={isMobile ? 0.4 : 0.2}
+              luminanceSmoothing={0.9}
+              intensity={isMobile ? 0.3 : 0.6}
+              mipmapBlur
+            />
+          </EffectComposer>
+        )}
+
+        <Preload all={false} />
       </Canvas>
 
       {/* "Tap to Explore" mobile hint */}

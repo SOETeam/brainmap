@@ -218,6 +218,8 @@ interface OrbSceneProps {
   setActiveDomain: (domain: string | null) => void;
   isExpanded: boolean;
   setIsExpanded: (expanded: boolean) => void;
+  isMobile?: boolean;
+  isLowEnd?: boolean;
 }
 
 export default function OrbScene({
@@ -228,6 +230,8 @@ export default function OrbScene({
   setActiveDomain,
   isExpanded,
   setIsExpanded,
+  isMobile = false,
+  isLowEnd = false,
 }: OrbSceneProps) {
   const { camera } = useThree();
   const controlsRef = useRef<OrbitControlsImpl>(null);
@@ -335,6 +339,9 @@ export default function OrbScene({
     }));
   }, [subOrbs, activeDomain, drillDepth]);
 
+  // MOBILE: reduce Stars count
+  const starsCount = isLowEnd ? 300 : isMobile ? 500 : 2000;
+
   return (
     <>
       {/* OrbitControls — the ONLY thing controlling the camera */}
@@ -364,11 +371,11 @@ export default function OrbScene({
       <pointLight position={[-5, -5, 3]} intensity={0.3} color="#00ff88" />
 
       {/* Background */}
-      <Stars radius={50} depth={50} count={2000} factor={3} saturation={0.2} fade speed={0.5} />
+      <Stars radius={50} depth={50} count={starsCount} factor={3} saturation={0.2} fade speed={0.5} />
       <color attach="background" args={['#030308']} />
       <fog attach="fog" args={['#030308', 15, 40]} />
 
-      <Particles />
+      <Particles isMobile={isMobile} isLowEnd={isLowEnd} />
 
       {/* === MAIN VIEW === */}
       {drillDepth === 0 && (
@@ -390,6 +397,8 @@ export default function OrbScene({
             isCentralCollapsed={!isExpanded}
             appearProgress={1}
             animScale={1}
+            isMobile={isMobile}
+            isLowEnd={isLowEnd}
           />
 
           {/* Domain orbs — shown once expanded */}
@@ -409,12 +418,14 @@ export default function OrbScene({
                 floatIntensity={0.2}
                 appearProgress={1}
                 animScale={1}
+                isMobile={isMobile}
+                isLowEnd={isLowEnd}
               />
             ))}
 
           {/* Connection lines */}
           {domainOrbsVisible && (
-            <ConnectionLines connections={domainConnections} visible />
+            <ConnectionLines connections={domainConnections} visible isMobile={isMobile} isLowEnd={isLowEnd} />
           )}
         </>
       )}
@@ -438,6 +449,8 @@ export default function OrbScene({
                 floatSpeed={0.5}
                 floatIntensity={0.1}
                 appearProgress={1}
+                isMobile={isMobile}
+                isLowEnd={isLowEnd}
               />
             );
           })()}
@@ -456,10 +469,12 @@ export default function OrbScene({
               floatSpeed={1}
               floatIntensity={0.15}
               appearProgress={1}
+              isMobile={isMobile}
+              isLowEnd={isLowEnd}
             />
           ))}
 
-          <ConnectionLines connections={subConnections} visible />
+          <ConnectionLines connections={subConnections} visible isMobile={isMobile} isLowEnd={isLowEnd} />
         </>
       )}
     </>

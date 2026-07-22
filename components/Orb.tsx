@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useMemo, useState, useCallback } from 'react';
+import { useRef, useMemo, useState, useCallback, useEffect } from 'react';
 import { useFrame, ThreeEvent } from '@react-three/fiber';
 import { Html } from '@react-three/drei';
 import * as THREE from 'three';
@@ -36,6 +36,9 @@ interface OrbProps {
   animScale?: number;
   /** Is this the central orb in collapsed state? */
   isCentralCollapsed?: boolean;
+  /** Mobile performance flags */
+  isMobile?: boolean;
+  isLowEnd?: boolean;
 }
 
 function generateSphereParticles(count: number, radius: number) {
@@ -49,7 +52,7 @@ function generateSphereParticles(count: number, radius: number) {
     // Distribute on sphere surface with slight volume variation
     const phi = Math.acos(2 * Math.random() - 1);
     const theta = Math.random() * Math.PI * 2;
-    const r = radius * (0.92 + Math.random() * 0.16); // Slight volume scatter
+    const r = radius * (0.92 + Math.random() * 0.16);
 
     const x = r * Math.sin(phi) * Math.cos(theta);
     const y = r * Math.sin(phi) * Math.sin(theta);
@@ -99,6 +102,8 @@ export default function Orb({
   appearProgress = 1,
   animScale = 1,
   isCentralCollapsed = false,
+  isMobile = false,
+  isLowEnd = false,
 }: OrbProps) {
   const pointsRef = useRef<THREE.Points>(null);
   const groupRef = useRef<THREE.Group>(null);
@@ -107,12 +112,22 @@ export default function Orb({
   const currentScale = useRef(0.01);
   const currentOpacity = useRef(0);
   const floatOffset = useRef(Math.random() * Math.PI * 2);
+  const frameCount = useRef(0);
 
-  const particleCount = isCenter ? 1500 : 800;
+  // MOBILE: significantly reduce particle count
+  const particleCount = useMemo(() => {
+    const desktop = isCenter ? 1500 : 800;
+    if (isLowEnd) return Math.floor(desktop * 0.3);   // 70% reduction
+    if (isMobile) return Math.floor(desktop * 0.4);   // 60% reduction
+    return desktop;
+  }, [isCenter, isMobile, isLowEnd]);
 
-  const color = new THREE.Color(STATUS_HEX[status]);
-  const colorHSL = { h: 0, s: 0, l: 0 };
-  color.getHSL(colorHSL);
+  const color = useMemo(() => new THREE.Color(STATUS_HEX[status]), [status]);
+  const colorHSL = useMemo(() => {
+    const hsl = { h: 0, s: 0, l: 0 };
+    color.getHSL(hsl);
+    return hsl;
+  }, [color]);
 
   const { positions, basePositions, colors, sizes, noiseOffsets } = useMemo(
     () => generateSphereParticles(particleCount, radius),
@@ -125,6 +140,18 @@ export default function Orb({
     geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
     geo.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
     return geo;
+  }, [positions, colors, sizes]);
+
+  // Dispose geometry and material on unmount
+  useEffect(() => {
+    return () => {
+      if (pointsRef.current) {
+        pointsRef.current.geometry.dispose();
+        if (pointsRef.current.material instanceof THREE.Material) {
+          pointsRef.current.material.dispose();
+        }
+      }
+    };
   }, []);
 
   // Custom shader material for particles
@@ -188,8 +215,15 @@ export default function Orb({
     });
   }, [color]);
 
+  // Reusable temp color to avoid allocation in hot loop
+  const tempColor = useMemo(() => new THREE.Color(), []);
+
   useFrame((state, delta) => {
     if (!pointsRef.current || !groupRef.current) return;
+
+    // MOBILE: skip particle animation on alternating frames (30fps instead of 60)
+    frameCount.current++;
+    const skipParticles = isMobile && frameCount.current % 2 !== 0;
 
     const t = state.clock.elapsedTime;
     const mat = pointsRef.current.material as THREE.ShaderMaterial;
@@ -216,6 +250,9 @@ export default function Orb({
     const floatY = Math.sin(t * floatSpeed + floatOffset.current) * floatIntensity;
     groupRef.current.position.y = position[1] + floatY;
 
+    // Skip particle position/color updates on alternate frames for mobile
+    if (skipParticles) return;
+
     // Update particle positions with noise-based organic movement
     const posAttr = pointsRef.current.geometry.attributes.position;
     const colAttr = pointsRef.current.geometry.attributes.color;
@@ -226,6 +263,9 @@ export default function Orb({
     const noiseScale = isCenter ? 0.8 : 1.2;
     const waveAmplitude = radius * 0.08;
 
+    // MOBILE: use fewer noise octaves
+    const octaves = isLowEnd ? 1 : 2;
+
     for (let i = 0; i < particleCount; i++) {
       const i3 = i * 3;
       const nx = noiseOffsets[i3];
@@ -233,31 +273,34 @@ export default function Orb({
       const nz = noiseOffsets[i3 + 2];
 
       // Noise-based displacement for organic "swarm" movement
-      const dx = fbm(nx + noiseTime, ny, nz, 2) * waveAmplitude;
-      const dy = fbm(nx, ny + noiseTime, nz, 2) * waveAmplitude;
-      const dz = fbm(nx, ny, nz + noiseTime, 2) * waveAmplitude;
+      // On mobile: use simpler noise (fewer octaves)
+      const dx = (isLowEnd ? noise3D(nx + noiseTime, ny, nz) : fbm(nx + noiseTime, ny, nz, octaves)) * waveAmplitude;
+      const dy = (isLowEnd ? noise3D(nx, ny + noiseTime, nz) : fbm(nx, ny + noiseTime, nz, octaves)) * waveAmplitude;
+      const dz = (isLowEnd ? noise3D(nx, ny, nz + noiseTime) : fbm(nx, ny, nz + noiseTime, octaves)) * waveAmplitude;
 
       posArr[i3] = basePositions[i3] + dx * noiseScale;
       posArr[i3 + 1] = basePositions[i3 + 1] + dy * noiseScale;
       posArr[i3 + 2] = basePositions[i3 + 2] + dz * noiseScale;
 
-      // Color variation within theme color
-      const hueShift = fbm(nx * 0.5, ny * 0.5, noiseTime) * 0.05;
-      const satShift = fbm(nx * 0.3, noiseTime, nz * 0.3) * 0.1;
-      const lightShift = fbm(noiseTime, ny * 0.3, nz * 0.3) * 0.08;
+      // DESKTOP ONLY: per-frame color variation (expensive HSL conversion)
+      if (!isMobile) {
+        const hueShift = fbm(nx * 0.5, ny * 0.5, noiseTime) * 0.05;
+        const satShift = fbm(nx * 0.3, noiseTime, nz * 0.3) * 0.1;
+        const lightShift = fbm(noiseTime, ny * 0.3, nz * 0.3) * 0.08;
 
-      const h = Math.max(0, Math.min(1, colorHSL.h + hueShift));
-      const s = Math.max(0, Math.min(1, colorHSL.s + satShift));
-      const l = Math.max(0.2, Math.min(0.9, colorHSL.l + lightShift + 0.1));
+        const h = Math.max(0, Math.min(1, colorHSL.h + hueShift));
+        const s = Math.max(0, Math.min(1, colorHSL.s + satShift));
+        const l = Math.max(0.2, Math.min(0.9, colorHSL.l + lightShift + 0.1));
 
-      const tempColor = new THREE.Color().setHSL(h, s, l);
-      colArr[i3] = tempColor.r;
-      colArr[i3 + 1] = tempColor.g;
-      colArr[i3 + 2] = tempColor.b;
+        tempColor.setHSL(h, s, l);
+        colArr[i3] = tempColor.r;
+        colArr[i3 + 1] = tempColor.g;
+        colArr[i3 + 2] = tempColor.b;
+      }
     }
 
     posAttr.needsUpdate = true;
-    colAttr.needsUpdate = true;
+    if (!isMobile) colAttr.needsUpdate = true;
   });
 
   const handleClick = useCallback((e: ThreeEvent<MouseEvent>) => {
@@ -295,9 +338,9 @@ export default function Orb({
         onPointerOut={handlePointerOut}
       />
 
-      {/* Inner glow core */}
+      {/* Inner glow core — simplify on mobile (fewer segments) */}
       <mesh>
-        <sphereGeometry args={[radius * 0.3, 16, 16]} />
+        <sphereGeometry args={[radius * 0.3, isMobile ? 8 : 16, isMobile ? 8 : 16]} />
         <meshBasicMaterial
           color={STATUS_HEX[status]}
           transparent
@@ -306,9 +349,9 @@ export default function Orb({
         />
       </mesh>
 
-      {/* Outer glow halo */}
+      {/* Outer glow halo — simplify on mobile */}
       <mesh>
-        <sphereGeometry args={[radius * 1.4, 16, 16]} />
+        <sphereGeometry args={[radius * 1.4, isMobile ? 8 : 16, isMobile ? 8 : 16]} />
         <meshBasicMaterial
           color={STATUS_HEX[status]}
           transparent

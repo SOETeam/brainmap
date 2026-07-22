@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useMemo } from 'react';
+import { useRef, useMemo, useEffect } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 
@@ -22,14 +22,18 @@ interface ConnectionDef {
 interface ConnectionLinesProps {
   connections: ConnectionDef[];
   visible?: boolean;
+  isMobile?: boolean;
+  isLowEnd?: boolean;
 }
 
-function DataStreamLine({ from, to, color, visible = true }: ConnectionDef & { visible?: boolean }) {
+function DataStreamLine({ from, to, color, visible = true, isMobile = false, isLowEnd = false }: ConnectionDef & { visible?: boolean; isMobile?: boolean; isLowEnd?: boolean }) {
   const pointsRef = useRef<THREE.Points>(null);
   const phaseOffset = useRef(Math.random() * Math.PI * 2);
   const currentOpacity = useRef(0);
+  const frameCount = useRef(0);
 
-  const STREAM_PARTICLES = 40;
+  // MOBILE: reduce stream particle count
+  const STREAM_PARTICLES = isLowEnd ? 10 : isMobile ? 20 : 40;
 
   const { geometry, basePositions, curve } = useMemo(() => {
     const curve = new THREE.QuadraticBezierCurve3(
@@ -55,13 +59,19 @@ function DataStreamLine({ from, to, color, visible = true }: ConnectionDef & { v
       basePositions[i3 + 1] = point.y;
       basePositions[i3 + 2] = point.z;
 
-      // Color with slight variation
-      const hsl = { h: 0, s: 0, l: 0 };
-      c.getHSL(hsl);
-      const vc = new THREE.Color().setHSL(hsl.h, hsl.s, hsl.l + (Math.random() - 0.5) * 0.15);
-      colors[i3] = vc.r;
-      colors[i3 + 1] = vc.g;
-      colors[i3 + 2] = vc.b;
+      // Color with slight variation — skip on mobile (static colors)
+      if (!isMobile) {
+        const hsl = { h: 0, s: 0, l: 0 };
+        c.getHSL(hsl);
+        const vc = new THREE.Color().setHSL(hsl.h, hsl.s, hsl.l + (Math.random() - 0.5) * 0.15);
+        colors[i3] = vc.r;
+        colors[i3 + 1] = vc.g;
+        colors[i3 + 2] = vc.b;
+      } else {
+        colors[i3] = c.r;
+        colors[i3 + 1] = c.g;
+        colors[i3 + 2] = c.b;
+      }
 
       sizes[i] = 1.5 + Math.random() * 2;
     }
@@ -72,7 +82,7 @@ function DataStreamLine({ from, to, color, visible = true }: ConnectionDef & { v
     geometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
 
     return { geometry, basePositions, curve };
-  }, [from, to, color]);
+  }, [from, to, color, STREAM_PARTICLES, isMobile]);
 
   const material = useMemo(() => {
     return new THREE.ShaderMaterial({
@@ -121,6 +131,14 @@ function DataStreamLine({ from, to, color, visible = true }: ConnectionDef & { v
     });
   }, []);
 
+  // Dispose on unmount
+  useEffect(() => {
+    return () => {
+      geometry.dispose();
+      material.dispose();
+    };
+  }, [geometry, material]);
+
   useFrame((state) => {
     if (!pointsRef.current) return;
     const t = state.clock.elapsedTime;
@@ -132,6 +150,10 @@ function DataStreamLine({ from, to, color, visible = true }: ConnectionDef & { v
     mat.uniforms.uOpacity.value = currentOpacity.current;
     mat.uniforms.uTime.value = t;
 
+    // MOBILE: skip position animation on alternating frames
+    frameCount.current++;
+    if (isMobile && frameCount.current % 2 !== 0) return;
+
     // Animate particles flowing along the curve
     const posAttr = pointsRef.current.geometry.attributes.position;
     const posArr = posAttr.array as Float32Array;
@@ -142,8 +164,8 @@ function DataStreamLine({ from, to, color, visible = true }: ConnectionDef & { v
       const point = curve.getPoint(flowT);
       const i3 = i * 3;
 
-      // Add slight wave perpendicular to curve
-      const wave = Math.sin(t * 2 + i * 0.5) * 0.03;
+      // Add slight wave perpendicular to curve — skip on mobile
+      const wave = isMobile ? 0 : Math.sin(t * 2 + i * 0.5) * 0.03;
       posArr[i3] = point.x + wave;
       posArr[i3 + 1] = point.y + wave;
       posArr[i3 + 2] = point.z + wave * 0.5;
@@ -157,11 +179,11 @@ function DataStreamLine({ from, to, color, visible = true }: ConnectionDef & { v
   );
 }
 
-export default function ConnectionLines({ connections, visible = true }: ConnectionLinesProps) {
+export default function ConnectionLines({ connections, visible = true, isMobile = false, isLowEnd = false }: ConnectionLinesProps) {
   return (
     <group>
       {connections.map((conn, i) => (
-        <DataStreamLine key={i} {...conn} visible={visible} />
+        <DataStreamLine key={i} {...conn} visible={visible} isMobile={isMobile} isLowEnd={isLowEnd} />
       ))}
     </group>
   );
